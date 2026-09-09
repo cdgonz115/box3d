@@ -9,6 +9,7 @@
 #include "sample.h"
 #include "box3d/box3d.h"
 #include "gfx/debug_adapter.h"
+#include "box3d/math_functions.h"
 
 class SingleObject : public Sample
 {
@@ -32,16 +33,22 @@ public:
         m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
         m_camera->UpdateTransform();
 
-        b3BodyDef bodyDef = b3DefaultBodyDef();
-        bodyDef.name = "ground";
-        bodyDef.position = b3OffsetPos( base, { 0.0f, -1.0f, 0.0f } );
-        b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
-
-        b3ShapeDef shapeDef = b3DefaultShapeDef();
-        b3BoxHull groundHull = b3MakeBoxHull( 12.0f, 1.0f, 12.0f );
-        b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
-        SetGroundShape( groundShapeId );
-
+        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+            {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
+        };
+        
+        for (b3Transform transform : transforms) {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.name = "ground";
+            bodyDef.position = b3OffsetPos( base, transform.p );
+            bodyDef.rotation = transform.q;
+            b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
+            
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            b3BoxHull groundHull = b3MakeBoxHull( 12.0f, 1.0f, 12.0f );
+            b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
+            SetGroundShape( groundShapeId );
+        }
         
     }
 };
