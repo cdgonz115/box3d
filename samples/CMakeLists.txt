@@ -170,6 +170,7 @@ set(SAMPLE_FILES
     sample_continuous.cpp
     sample_determinism.cpp
     sample_events.cpp
+    sample_gravity.cpp
     sample_geometry.cpp
     sample_issues.cpp
     sample_joint.cpp
