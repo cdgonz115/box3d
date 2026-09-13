@@ -73,7 +73,7 @@ static void b3IntegrateVelocitiesTask( b3SolverBlock block, b3StepContext* conte
 	b3BodyState* states = context->states;
 	b3BodySim* sims = context->sims;
 
-	b3Vec3 gravity = context->world->gravity;
+    b3Vec3 gravity = context->world->gravity;
 	float h = context->h;
 
 	for ( int i = block.startIndex; i < block.startIndex + block.count; ++i )
@@ -93,11 +93,40 @@ static void b3IntegrateVelocitiesTask( b3SolverBlock block, b3StepContext* conte
 		// v2 = v1 * 1 / (1 + c * dt)
 		float linearDamping = 1.0f / ( 1.0f + h * sim->linearDamping );
 		float angularDamping = 1.0f / ( 1.0f + h * sim->angularDamping );
+        
+        
+        b3Vec3 g;
+        
+        if(sim->gravitySources.count > 0)
+        {
+            g = b3Vec3_zero;
+            
+            for( int i = 0; i < sim->gravitySources.count ; i++)
+            {
+                b3GravitySource * src = sim->gravitySources.data + i;
+                b3Vec3 dir = src->isPositional? b3Sub(src->position, sim->center) : src->direction;
+                
+                if(src->isPositional)
+                {
+                    float lenSq = b3Dot(dir, dir);
+                    if(lenSq < 1e-8f)
+                    {
+                        continue;
+                    }
+                    dir = b3MulSV(1.0f/sqrtf(lenSq), dir);
+                }
+                g = b3MulAdd(g, src->gravityRate, dir);
+            }
+        }
+        else
+        {
+            g = gravity;
+        }
 
 		// Gravity scale will be zero for kinematic bodies
 		float gravityScale = sim->invMass > 0.0f ? sim->gravityScale : 0.0f;
 
-		b3Vec3 linearVelocityDelta = b3Blend2( h * sim->invMass, sim->force, h * gravityScale, gravity );
+		b3Vec3 linearVelocityDelta = b3Blend2( h * sim->invMass, sim->force, h * gravityScale, g);
 		v = b3MulAdd( linearVelocityDelta, linearDamping, v );
 
 		b3Vec3 angularVelocityDelta = b3MulSV( h, b3MulMV( sim->invInertiaWorld, sim->torque ) );

@@ -6,6 +6,7 @@
 #include "box3d/constants.h"
 #include "box3d/math_functions.h"
 #include "box3d/types.h"
+#include "container.h"
 
 typedef struct b3World b3World;
 
@@ -179,6 +180,8 @@ static const b3BodyState b3_identityBodyState = {
 	{ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { { 0.0f, 0.0f, 0.0f }, 1.0f }, 0,
 };
 
+b3DeclareArrayNative(b3GravitySource);
+
 // Body simulation data used for integration of position and velocity
 // Transform data used for collision and solver preparation.
 typedef struct b3BodySim
@@ -212,6 +215,9 @@ typedef struct b3BodySim
 	float angularDamping;
 	float gravityScale;
 
+    // Custom gravity sources
+    b3Array(b3GravitySource) gravitySources;
+    
 	// Index of b3Body
 	int bodyId;
 

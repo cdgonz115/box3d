@@ -7,13 +7,14 @@
 
 #include "box3d/constants.h"
 
+b3Vec3 b3DefaultGravity = {0.0f, -9.8f, 0.0f};
+
 b3WorldDef b3DefaultWorldDef( void )
 {
 	float lengthUnits = b3GetLengthUnitsPerMeter();
 
 	b3WorldDef def = { 0 };
-	def.gravity.x = 0.0f;
-	def.gravity.y = -10.0f;
+    def.gravity = b3DefaultGravity;
 	def.hitEventThreshold = 1.0f * lengthUnits;
 	def.restitutionThreshold = 1.0f * lengthUnits;
 	def.contactSpeed = 3.0f * lengthUnits;
