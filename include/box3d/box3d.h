@@ -671,6 +671,15 @@ B3_API void b3Body_SetGravityScale( b3BodyId bodyId, float gravityScale );
 /// Get the current gravity scale
 B3_API float b3Body_GetGravityScale( b3BodyId bodyId );
 
+/// Add  a gravity source to the gravitySources array of the specified body
+B3_API void b3Body_AddGravitySource( b3BodyId bodyId, b3GravitySource source );
+
+/// remove  a gravity source to the gravitySources array of the specified body
+B3_API void b3Body_RemoveGravitySourceAt( b3BodyId bodyId, int index );
+
+/// Set the pointer to the beggining of the gravity soures array as well as the number of sources capped at 10
+B3_API void b3Body_SetGravitySources(b3BodyId bodyId, const b3GravitySource* sources, int count);
+
 /// @return true if this body is awake
 B3_API bool b3Body_IsAwake( b3BodyId bodyId );
 
