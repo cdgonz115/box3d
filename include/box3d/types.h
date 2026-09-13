@@ -14,6 +14,8 @@
 #define B3_DEFAULT_CATEGORY_BITS UINT64_MAX
 #define B3_DEFAULT_MASK_BITS UINT64_MAX
 
+#define B3_MAX_GRAVITY_SOURCES 10
+
 /// Task interface
 /// This is the prototype for a Box3D task. Your task system is expected to run this callback on a worker thread,
 /// exactly once per enqueue, passing back the same taskContext pointer supplied to b3EnqueueTaskCallback.
@@ -352,6 +354,14 @@ typedef struct b3BodyDef
 /// Use this to initialize your body definition
 /// @ingroup body
 B3_API b3BodyDef b3DefaultBodyDef( void );
+
+typedef struct b3GravitySource
+{
+    b3Vec3 position;
+    b3Vec3 direction;
+    float gravityRate;
+    bool isPositional;
+} b3GravitySource;
 
 /// This is used to filter collision on shapes. It affects shape-vs-shape collision
 /// and shape-versus-query collision (such as b3World_CastRay).

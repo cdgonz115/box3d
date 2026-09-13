@@ -388,6 +388,9 @@ void b3DestroyBody( b3BodyId bodyId )
 
 		shapeId = shape->nextShapeId;
 	}
+    
+    b3BodySim* bodySim = b3GetBodySim( world, body );
+    b3Array_Destroy(bodySim->gravitySources);
 
 	b3RemoveBodyFromIsland( world, body );
 
@@ -1990,6 +1993,75 @@ float b3Body_GetGravityScale( b3BodyId bodyId )
 	b3Body* body = b3GetBodyFullId( world, bodyId );
 	b3BodySim* bodySim = b3GetBodySim( world, body );
 	return bodySim->gravityScale;
+}
+
+void b3Body_AddGravitySource(b3BodyId bodyId, b3GravitySource source)
+{
+    B3_ASSERT(b3Body_IsValid(bodyId));
+    
+    b3World* world = b3GetUnlockedWorld(bodyId.world0);
+    if(world==NULL) {return;}
+    
+    b3Body* body = b3GetBodyFullId(world,bodyId);
+    b3BodySim* bodySim = b3GetBodySim(world, body);
+    
+    int count = bodySim->gravitySources.count;
+    
+    B3_ASSERT( count >= 0 && count <= B3_MAX_GRAVITY_SOURCES);
+    
+    if(count >= B3_MAX_GRAVITY_SOURCES)
+    {
+        for(int i = 1; i < B3_MAX_GRAVITY_SOURCES;i++)
+        {
+            bodySim->gravitySources.data[i-1] = bodySim->gravitySources.data[i];
+        }
+        bodySim->gravitySources.count=B3_MAX_GRAVITY_SOURCES-1;
+    }
+    
+    b3Array_Push(bodySim->gravitySources, source);
+    
+    if (body->setIndex >= b3_firstSleepingSet){
+        b3WakeBody(world, body);
+    }
+    
+}
+
+void b3Body_RemoveGravitySourceAt(b3BodyId bodyId, int index)
+{
+    B3_ASSERT(b3Body_IsValid(bodyId));
+    
+    b3World* world = b3GetUnlockedWorld(bodyId.world0);
+    if(world==NULL) {return;}
+    
+    b3Body* body = b3GetBodyFullId(world,bodyId);
+    b3BodySim* bodySim = b3GetBodySim(world, body);
+    
+    B3_ASSERT(0 <= index && index < bodySim->gravitySources.count);
+    
+    for(int i = index+1; i < bodySim->gravitySources.count;i++)
+    {
+        bodySim->gravitySources.data[i-1] = bodySim->gravitySources.data[i];
+    }
+    bodySim->gravitySources.count-=1;
+    
+}
+
+void b3Body_SetGravitySources( b3BodyId bodyId, const b3GravitySource* sources, int count )
+{
+    B3_ASSERT( b3Body_IsValid( bodyId ) );
+    B3_ASSERT( count >= 0 && count <= B3_MAX_GRAVITY_SOURCES);
+
+    b3World* world = b3GetUnlockedWorld( bodyId.world0 );
+    if ( world == NULL )
+    {
+        return;
+    }
+
+    b3Body* body = b3GetBodyFullId( world, bodyId );
+    b3BodySim* bodySim = b3GetBodySim( world, body );
+    
+    bodySim->gravitySources.count = 0;
+    b3Array_Append(bodySim->gravitySources, sources, count);
 }
 
 bool b3Body_IsAwake( b3BodyId bodyId )
