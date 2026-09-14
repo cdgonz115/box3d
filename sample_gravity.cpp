@@ -13,6 +13,7 @@
 #include "gfx/draw.h"
 #include "sample.h"
 #include <vector>
+#include <iostream>
 
 struct SampleSceneGravityMarker
 {
@@ -54,7 +55,8 @@ public:
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
         };
         
-        for (b3Transform transform : transforms) {
+        for (b3Transform transform : transforms)
+        {
             b3BodyDef bodyDef = b3DefaultBodyDef();
             bodyDef.name = "ground";
             bodyDef.position = b3OffsetPos( base, transform.p );
@@ -128,3 +130,77 @@ public:
 
 static int sampleSingleObject = RegisterSample( "Gravity", "Single Object", SingleObject::Create );
 
+class MultipleObjects : public Sample
+{
+public:
+    explicit MultipleObjects( SampleContext* context )
+        : Sample( context )
+    {
+        BuildScene();
+    }
+    
+    static Sample* Create( SampleContext* context )
+    {
+        return new MultipleObjects( context );
+    }
+    void BuildScene()
+    {
+        b3Pos base = { 0.0f, 0.0f, 0.0f };
+        m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
+        m_camera->UpdateTransform();
+
+        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+            {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
+        };
+        
+        for (b3Transform transform : transforms) {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.name = "ground";
+            bodyDef.position = b3OffsetPos( base, transform.p );
+            bodyDef.rotation = transform.q;
+            b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
+            
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            b3BoxHull groundHull = b3MakeBoxHull( 12.0f, 1.0f, 12.0f );
+            b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
+            SetGroundShape( groundShapeId );
+        }
+        
+        int numberOfBalls = 12;
+        float radius = 3;
+        float step = 360 / numberOfBalls;
+        
+        b3Vec3 center = { 0.0f, 4.0f };
+        
+        for (int i = 0 ; i < numberOfBalls; i++)
+        {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.type = b3_dynamicBody;
+            bodyDef.isEnabled = true;
+            
+            float angle =step * i;
+            
+            float x = cos(angle);
+            float y = sin(angle);
+            
+            bodyDef.position = center + ((b3Vec3){x, y, 0}) * radius;
+            std::cout<<"ø"<<angle<<"\n";
+            std::cout<<"vec3 "<<bodyDef.position.x<< ", "<<bodyDef.position.y<<", "<<bodyDef.position.z<<"\n";
+            
+            bodyDef.name = "object";
+            b3BodyId m_sphereBodyId = b3CreateBody( m_worldId, &bodyDef );
+
+            b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, 1 };
+
+            
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            shapeDef.density = 2.0f;
+            
+            b3Body_AddGravitySource(m_sphereBodyId,{{0,4,0},{0},20,true});
+
+            b3CreateSphereShape( m_sphereBodyId, &shapeDef, &sphere );
+        }
+    }
+};
+
+static int sampleMultipleObjects = RegisterSample( "Gravity", "Multiple Objects", MultipleObjects::Create );
