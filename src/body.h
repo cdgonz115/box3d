@@ -109,6 +109,7 @@ typedef struct b3Body
 	float sleepThreshold;
 	float sleepTime;
 	float sleepVelocity;
+	float safetyFactor;
 	float mass;
 
 	// local space inertia

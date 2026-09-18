@@ -175,11 +175,11 @@ static void b3CreateWorkerContexts( b3World* world )
 	{
 		world->taskContexts.data[i].arena = b3CreateArena( 128 * 1024 );
 		b3Array_Reserve( world->taskContexts.data[i].sensorHits, 8 );
+		b3Array_Reserve( world->taskContexts.data[i].pairKeys, 64 );
 		world->taskContexts.data[i].contactStateBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hitEventBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hasHitEvents = false;
 		world->taskContexts.data[i].jointStateBitSet = b3CreateBitSet( 1024 );
-		world->taskContexts.data[i].enlargedSimBitSet = b3CreateBitSet( 256 );
 		world->taskContexts.data[i].awakeIslandBitSet = b3CreateBitSet( 256 );
 		world->taskContexts.data[i].splitIslandId = B3_NULL_INDEX;
 
@@ -193,10 +193,10 @@ static void b3DestroyWorkerContexts( b3World* world )
 	{
 		b3DestroyArena( &world->taskContexts.data[i].arena );
 		b3Array_Destroy( world->taskContexts.data[i].sensorHits );
+		b3Array_Destroy( world->taskContexts.data[i].pairKeys );
 		b3DestroyBitSet( &world->taskContexts.data[i].contactStateBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].hitEventBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].jointStateBitSet );
-		b3DestroyBitSet( &world->taskContexts.data[i].enlargedSimBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].awakeIslandBitSet );
 
 		b3DestroyBitSet( &world->sensorTaskContexts.data[i].eventBits );
@@ -615,7 +615,6 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 		bool isStaticA = bodyA->type == b3_staticBody;
 		bool isStaticB = bodyB->type == b3_staticBody;
 		bool wasTouching = ( contact->flags & b3_simTouchingFlag );
-		bool isMeshContact = ( contact->flags & b3_simMeshContact );
 		b3BodySim* bodySimA;
 		b3BodySim* bodySimB;
 		if ( wasTouching )
@@ -653,7 +652,7 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 		// Contact recycling optimization. Please cite this library if you use this optimization.
 		// This is inspired by persistent contact manifolds used in some physics engines, such as PhysX.
 		// However, this allows larger relative motion and has fewer tuning parameters (just one).
-		if ( ( isFast == false || isMeshContact == false ) && recycleDistance > 0.0f &&
+		if ( isFast == false && recycleDistance > 0.0f &&
 			 ( contact->flags & b3_relativeTransformValid ) && ( contact->flags & b3_contactRecycleFlag ) )
 		{
 			// The scalar part of b3InvMulQuat is just the quaternion dot product.
@@ -1149,6 +1148,7 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 		world->finishTaskFcn( world->userTreeTask, world->userTaskContext );
 		world->userTreeTask = NULL;
 		world->activeTaskCount -= 1;
+		b3ValidateNoMoved( &world->broadPhase );
 	}
 
 	// Update sensors
@@ -2419,22 +2419,14 @@ void b3World_DumpMemoryStats( b3WorldId worldId )
 	int staticTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_staticBody );
 	int kinematicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_kinematicBody );
 	int dynamicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_dynamicBody );
-	int movedBytes = 0;
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
-	{
-		movedBytes += b3GetBitSetBytes( &world->broadPhase.movedProxies[i] );
-	}
-	int moveArrayBytes = b3Array_ByteCount( world->broadPhase.moveArray );
 	b3HashSet* pairSet = &world->broadPhase.pairSet;
 	int pairSetBytes = b3GetHashSetBytes( pairSet );
-	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + movedBytes + moveArrayBytes + pairSetBytes;
+	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + pairSetBytes;
 
 	b3Log( "broad-phase" );
 	b3Log( "static tree: %d", staticTreeBytes );
 	b3Log( "kinematic tree: %d", kinematicTreeBytes );
 	b3Log( "dynamic tree: %d", dynamicTreeBytes );
-	b3Log( "movedProxies: %d", movedBytes );
-	b3Log( "moveArray: %d", moveArrayBytes );
 	b3Log( "pairSet: %d (%d, %d)", pairSetBytes, pairSet->count, pairSet->capacity );
 
 	// Manifold block allocators, one per manifold point count
@@ -2512,10 +2504,10 @@ void b3World_DumpMemoryStats( b3WorldId worldId )
 	{
 		b3TaskContext* taskContext = world->taskContexts.data + i;
 		taskContextBytes += b3Array_ByteCount( taskContext->sensorHits );
+		taskContextBytes += b3Array_ByteCount( taskContext->pairKeys );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->contactStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->jointStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->hitEventBitSet );
-		taskContextBytes += b3GetBitSetBytes( &taskContext->enlargedSimBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->awakeIslandBitSet );
 	}
 
