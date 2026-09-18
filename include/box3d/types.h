@@ -359,8 +359,10 @@ typedef struct b3GravitySource
 {
     b3Vec3 position;
     b3Vec3 direction;
+    b3BodyId sourceBodyId;
     float gravityRate;
     bool isPositional;
+    bool isBody;
 } b3GravitySource;
 
 /// This is used to filter collision on shapes. It affects shape-vs-shape collision

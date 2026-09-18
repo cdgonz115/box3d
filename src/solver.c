@@ -94,7 +94,6 @@ static void b3IntegrateVelocitiesTask( b3SolverBlock block, b3StepContext* conte
 		float linearDamping = 1.0f / ( 1.0f + h * sim->linearDamping );
 		float angularDamping = 1.0f / ( 1.0f + h * sim->angularDamping );
         
-        
         b3Vec3 g;
         
         if(sim->gravitySources.count > 0)
@@ -104,7 +103,21 @@ static void b3IntegrateVelocitiesTask( b3SolverBlock block, b3StepContext* conte
             for( int i = 0; i < sim->gravitySources.count ; i++)
             {
                 b3GravitySource * src = sim->gravitySources.data + i;
-                b3Vec3 dir = src->isPositional? b3Sub(src->position, sim->center) : src->direction;
+                b3Vec3 dir;
+                
+                if(src->isPositional && src->isBody)
+                {
+                    b3Body *sourceBody = b3GetBodyFullId(context->world, src->sourceBodyId);
+                    if(sourceBody==NULL)
+                    {
+                        continue;
+                    }
+                    b3BodySim * bodySourceSim = b3GetBodySim(context->world, sourceBody);
+                    dir=b3Sub(bodySourceSim->center, sim->center);
+                }
+                else {
+                    dir = src->isPositional? b3Sub(src->position , sim->center) : src->direction;
+                }
                 
                 if(src->isPositional)
                 {
