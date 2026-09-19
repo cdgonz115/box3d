@@ -103,7 +103,9 @@ public:
                 }
             }
             
-            b3GravitySource source = {result.point,{0},10,true};
+            
+            
+            b3GravitySource source = {result.point,{0},{0},10,true,false};
             
             if(m_markers.size() >= B3_MAX_GRAVITY_SOURCES){
                 m_markers.erase(m_markers.begin());
@@ -165,9 +167,12 @@ public:
             b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
             SetGroundShape( groundShapeId );
         }
+    
+        b3GravitySource sourceGravity = {{0},{0},{0},10,true,false};
         
-        int numberOfBalls = 12;
-        float radius = 3;
+        int numberOfBalls = 36;
+        float radius = 5;
+        
         float step = 360 / numberOfBalls;
         
         b3Vec3 center = { 0.0f, 4.0f };
@@ -184,19 +189,14 @@ public:
             float y = sin(angle);
             
             bodyDef.position = center + ((b3Vec3){x, y, 0}) * radius;
-            std::cout<<"ø"<<angle<<"\n";
-            std::cout<<"vec3 "<<bodyDef.position.x<< ", "<<bodyDef.position.y<<", "<<bodyDef.position.z<<"\n";
-            
             bodyDef.name = "object";
             b3BodyId m_sphereBodyId = b3CreateBody( m_worldId, &bodyDef );
+            b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, .5 };
 
-            b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, 1 };
-
-            
             b3ShapeDef shapeDef = b3DefaultShapeDef();
             shapeDef.density = 2.0f;
             
-            b3Body_AddGravitySource(m_sphereBodyId,{{0,4,0},{0},20,true});
+            b3Body_AddGravitySource(m_sphereBodyId,sourceGravity);
 
             b3CreateSphereShape( m_sphereBodyId, &shapeDef, &sphere );
         }
@@ -204,3 +204,96 @@ public:
 };
 
 static int sampleMultipleObjects = RegisterSample( "Gravity", "Multiple Objects", MultipleObjects::Create );
+
+class SourceBody : public Sample
+{
+public:
+    explicit SourceBody( SampleContext* context )
+        : Sample( context )
+    {
+        BuildScene();
+    }
+    
+    static Sample* Create( SampleContext* context )
+    {
+        return new SourceBody( context );
+    }
+    void BuildScene()
+    {
+        b3Pos base = { 0.0f, 0.0f, 0.0f };
+        m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
+        m_camera->UpdateTransform();
+
+        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+            {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
+        };
+        
+        for (b3Transform transform : transforms) {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.name = "ground";
+            bodyDef.position = b3OffsetPos( base, transform.p );
+            bodyDef.rotation = transform.q;
+            b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
+            
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            b3BoxHull groundHull = b3MakeBoxHull( 12.0f, 1.0f, 12.0f );
+            b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
+            SetGroundShape( groundShapeId );
+        }
+        b3BodyDef gravitySourceBodyDef = b3DefaultBodyDef();
+        gravitySourceBodyDef.type = b3_dynamicBody;
+        gravitySourceBodyDef.gravityScale = 0;
+        gravitySourceBodyDef.isEnabled = true;
+        gravitySourceBodyDef.position = { 0.0f, 5.0f };
+        gravitySourceBodyDef.name = "floater";
+        b3BodyId gravitySourceBodyId = b3CreateBody( m_worldId, &gravitySourceBodyDef );
+
+        b3Sphere gravitySourceSphere = { { 0.0f, 0.5f, 0.0f }, 1 };
+
+        b3ShapeDef gravitySourceShapeDef = b3DefaultShapeDef();
+        gravitySourceShapeDef.density = 2.0f;
+        
+        b3ShapeId gravitySourceShapeId = b3CreateSphereShape( gravitySourceBodyId, &gravitySourceShapeDef, &gravitySourceSphere );
+        
+        b3SurfaceMaterial gravitySourceMaterial = b3DefaultSurfaceMaterial();
+        gravitySourceMaterial.customColor = b3_colorCyan;
+        
+        b3Shape_SetSurfaceMaterial(gravitySourceShapeId, gravitySourceMaterial);
+        
+        b3GravitySource sourceGravity = {{0},{0},gravitySourceBodyId,10,true,true};
+        
+        int numberOfBalls = 12;
+        float radius = 5;
+        
+        float step = 360 / numberOfBalls;
+        
+        b3Vec3 center = { 0.0f, 4.0f };
+        
+        for (int i = 0 ; i < numberOfBalls; i++)
+        {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.type = b3_dynamicBody;
+            bodyDef.isEnabled = true;
+            
+            float angle =step * i;
+            
+            float x = cos(angle);
+            float y = sin(angle);
+            
+            bodyDef.position = center + ((b3Vec3){x, y, 0}) * radius;
+            bodyDef.name = "object";
+            b3BodyId m_sphereBodyId = b3CreateBody( m_worldId, &bodyDef );
+            b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, .5 };
+
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            shapeDef.density = 2.0f;
+            
+            b3Body_AddGravitySource(m_sphereBodyId,sourceGravity);
+
+            b3CreateSphereShape( m_sphereBodyId, &shapeDef, &sphere );
+        }
+    }
+};
+
+static int sampleSourceBody = RegisterSample( "Gravity", "Source Body", SourceBody::Create );
+
