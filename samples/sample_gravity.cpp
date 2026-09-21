@@ -34,6 +34,10 @@ public:
     explicit SingleObject( SampleContext* context )
         : Sample( context )
     {
+        if ( context->restart == false )
+        {
+            m_camera->SetView( 0.0f, 0.0f, 35.0f, { 0.0f, 0.0f, 0.0f });
+        }
         BuildScene();
     }
     
@@ -48,8 +52,6 @@ public:
         
         b3Pos base = { 0.0f, 0.0f, 0.0f };
         m_base = base;
-        m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
-        m_camera->UpdateTransform();
 
         b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
@@ -138,6 +140,10 @@ public:
     explicit MultipleObjects( SampleContext* context )
         : Sample( context )
     {
+        if ( context->restart == false )
+        {
+            m_camera->SetView( 0.0f, 0.0f, 35.0f, { 0.0f, 0.0f, 0.0f });
+        }
         BuildScene();
     }
     
@@ -148,8 +154,6 @@ public:
     void BuildScene()
     {
         b3Pos base = { 0.0f, 0.0f, 0.0f };
-        m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
-        m_camera->UpdateTransform();
 
         b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
@@ -170,7 +174,7 @@ public:
     
         b3GravitySource sourceGravity = {{0},{0},{0},10,true,false};
         
-        int numberOfBalls = 36;
+        int numberOfBalls = 64;
         float radius = 5;
         
         float step = 360 / numberOfBalls;
@@ -211,6 +215,10 @@ public:
     explicit SourceBody( SampleContext* context )
         : Sample( context )
     {
+        if ( context->restart == false )
+        {
+            m_camera->SetView( 0.0f, 0.0f, 35.0f, { 0.0f, 0.0f, 0.0f });
+        }
         BuildScene();
     }
     
@@ -221,9 +229,7 @@ public:
     void BuildScene()
     {
         b3Pos base = { 0.0f, 0.0f, 0.0f };
-        m_camera->m_pivot = b3OffsetPos( base, { 0.0f, 2.0f, 0.0f } );
-        m_camera->UpdateTransform();
-
+    
         b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
         };
@@ -297,3 +303,90 @@ public:
 
 static int sampleSourceBody = RegisterSample( "Gravity", "Source Body", SourceBody::Create );
 
+class StressTest : public Sample
+{
+public:
+    explicit StressTest(SampleContext * context) : Sample(context)
+    {
+        if ( context->restart == false )
+        {
+            m_camera->SetView( 0.0f, 0.0f, 100, { 0.0f, 50, 0.0f });
+        }
+        BuildScene();
+    }
+    static Sample* Create( SampleContext* context )
+    {
+        return new StressTest( context );
+    }
+    void BuildScene()
+    {
+        //Base large platform
+        {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.position = { 0.0f, -1.0f, 0.0f };
+            b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
+
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            b3BoxHull groundHull = b3MakeBoxHull( 400.0f, 1.0f, 400.0f );
+            b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
+            SetGroundShape( groundShapeId );
+        }
+        //Spawn balls
+        {
+            int numberOfBalls = 4000;
+            int numberOfRings = 400;
+            float radiusOfBalls = 0.5;
+            
+            int ballsPerRing = numberOfBalls/numberOfRings;
+            int ballsOverflow = numberOfBalls%numberOfRings;
+            
+            float minRadius = radiusOfBalls / sin(B3_PI / ballsPerRing);
+            float maxRadius = 50;
+            
+            b3Pos centerOfGravity = {0,50,0};
+            
+            double radiusStep = B3_PI / numberOfRings;
+            double heightStep = B3_PI / numberOfRings;
+            
+            std::cout<<"balls per ring: "<<ballsPerRing<<", ballsOverflow: "<<ballsOverflow<<", heightStep of "<<radiusStep<<"\n";
+
+            for(int i = 0; i < numberOfRings; i++)
+            {
+                int inRing = ballsPerRing + ((i == numberOfRings-1)? ballsOverflow : 0);
+                
+                double step = 2 * B3_PI / inRing;
+                
+                b3GravitySource sourceGravity = {centerOfGravity,{0},{0},10,true,false};
+                
+                float radius = sin(radiusStep * i) * maxRadius;
+                float height = cos(heightStep * i) * maxRadius;
+                                
+                for(int j = 0 ; j < inRing ; j++)
+                {
+                    b3BodyDef bodyDef = b3DefaultBodyDef();
+                    bodyDef.type = b3_dynamicBody;
+                    bodyDef.isEnabled = true;
+                    
+                    float angle = step * j + i;
+                    
+                    float x = cos(angle);
+                    float z = sin(angle);
+                    
+                    bodyDef.position = centerOfGravity + ((b3Vec3){x,0,z}) * (radius+ minRadius) + (b3Vec3){0,height,0};
+                    bodyDef.name = "object";
+                    b3BodyId m_sphereBodyId = b3CreateBody( m_worldId, &bodyDef );
+                    b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, radiusOfBalls};
+
+                    b3ShapeDef shapeDef = b3DefaultShapeDef();
+                    shapeDef.density = 2.0f;
+                    
+                    b3Body_AddGravitySource(m_sphereBodyId,sourceGravity);
+
+                    b3CreateSphereShape( m_sphereBodyId, &shapeDef, &sphere );
+                }
+            }
+        }
+    }
+};
+
+static int sampleStressTest = RegisterSample( "Gravity", "Stress Test", StressTest::Create );
