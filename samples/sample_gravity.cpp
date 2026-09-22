@@ -96,7 +96,8 @@ public:
             b3RayResult result = b3World_CastRayClosest(m_worldId, pickRay.origin, pickRay.translation, b3DefaultQueryFilter());
             for(int i = 0; i < m_markers.size(); i++)
             {
-                if(b3Distance(m_markers[i].position, result.point) < PICK_RADIUS)
+                b3Vec3 delta = b3SubPos(m_markers[i].position,result.point);
+                if(b3Length(delta) < PICK_RADIUS)
                 {
                     b3Body_RemoveGravitySourceAt(m_sphereBodyId, i);
                     m_markers.erase(m_markers.begin()+i);
@@ -123,8 +124,10 @@ public:
     {
         for(const SampleSceneGravityMarker& marker: m_markers)
         {
-            b3Sphere sphere = { marker.position, 0.2f};
-            DrawSolidSphere(b3Transform_identity, sphere, MakeColor(b3_colorGreen));
+            b3WorldTransform transform =b3WorldTransform_identity;
+            transform.p = marker.position;
+            b3Sphere sphere = {b3Vec3_zero, 0.2f};
+            DrawSolidSphere(transform,sphere, MakeColor(b3_colorGreen));
         }
 
         Sample::Step();
@@ -179,7 +182,7 @@ public:
         
         float step = 360 / numberOfBalls;
         
-        b3Vec3 center = { 0.0f, 4.0f };
+        b3Pos center = { 0.0f, 4.0f , 0.0f};
         
         for (int i = 0 ; i < numberOfBalls; i++)
         {
@@ -274,7 +277,7 @@ public:
         
         float step = 360 / numberOfBalls;
         
-        b3Vec3 center = { 0.0f, 4.0f };
+        b3Pos center = { 0.0f, 4.0f , 0.0f};
         
         for (int i = 0 ; i < numberOfBalls; i++)
         {
