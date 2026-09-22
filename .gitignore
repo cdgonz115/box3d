@@ -1,4 +1,5 @@
 build/
+build-double/
 build-compiledb/
 imgui.ini
 settings.ini
