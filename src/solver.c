@@ -111,10 +111,10 @@ static void b3IntegrateVelocitiesTask( b3SolverBlock block, b3StepContext* conte
                         continue;
                     }
                     b3BodySim * bodySourceSim = b3GetBodySim(context->world, sourceBody);
-                    dir=b3Sub(bodySourceSim->center, sim->center);
+                    dir=b3SubPos(bodySourceSim->center, sim->center);
                 }
                 else {
-                    dir = src->isPositional? b3Sub(src->position , sim->center) : src->direction;
+                    dir = src->isPositional? b3SubPos(src->position , sim->center) : src->direction;
                 }
                 
                 if(src->isPositional)

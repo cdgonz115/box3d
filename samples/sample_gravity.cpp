@@ -17,14 +17,13 @@
 
 struct SampleSceneGravityMarker
 {
-    b3Vec3 position;
+    b3Pos position;
 };
 
 class SingleObject : public Sample
 {
     b3BodyId m_topBodyId;
     b3Pos m_base; // world position of the offset content, the frame the height readout uses
-    
     b3BodyId m_sphereBodyId;
     b3BodyType m_type;
     bool m_isEnabled;
@@ -380,9 +379,9 @@ public:
             }
         }
         
-        for (int i = m_gravitySources.size() -1; i >=0; i--)
+        for (long i = m_gravitySources.size() -1; i >=0; i--)
         {
-            for(int j = m_gravitySources.size()-1 ; j >= 0 ; j--)
+            for(long j = m_gravitySources.size()-1 ; j >= 0 ; j--)
             {
                 if(i!=j)
                 {

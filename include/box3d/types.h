@@ -364,7 +364,7 @@ B3_API b3BodyDef b3DefaultBodyDef( void );
 
 typedef struct b3GravitySource
 {
-    b3Vec3 position;
+    b3Pos position;
     b3Vec3 direction;
     b3BodyId sourceBodyId;
     float gravityRate;
