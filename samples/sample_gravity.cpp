@@ -53,11 +53,11 @@ public:
         b3Pos base = { 0.0f, 0.0f, 0.0f };
         m_base = base;
 
-        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+        b3Transform wallTransforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
         };
         
-        for (b3Transform transform : transforms)
+        for (b3Transform transform : wallTransforms)
         {
             b3BodyDef bodyDef = b3DefaultBodyDef();
             bodyDef.name = "ground";
@@ -155,11 +155,12 @@ public:
     {
         b3Pos base = { 0.0f, 0.0f, 0.0f };
 
-        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+        b3Transform wallTransforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
         };
         
-        for (b3Transform transform : transforms) {
+        for (b3Transform transform : wallTransforms)
+        {
             b3BodyDef bodyDef = b3DefaultBodyDef();
             bodyDef.name = "ground";
             bodyDef.position = b3OffsetPos( base, transform.p );
@@ -230,11 +231,12 @@ public:
     {
         b3Pos base = { 0.0f, 0.0f, 0.0f };
     
-        b3Transform transforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
+        b3Transform wallTransforms[] = {{{0.0f,-11.0f,0.0f}, b3Quat_identity}, {{0.0f,11.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  180)}, {{11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, B3_DEG_TO_RAD *  90)}, {{-11.0f,0.0f,0.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisZ, -B3_DEG_TO_RAD *  90)},
             {{0.0f,0.0f,-11.0f}, b3MakeQuatFromAxisAngle( b3Vec3_axisX, -B3_DEG_TO_RAD *  90)}
         };
         
-        for (b3Transform transform : transforms) {
+        for (b3Transform transform : wallTransforms)
+        {
             b3BodyDef bodyDef = b3DefaultBodyDef();
             bodyDef.name = "ground";
             bodyDef.position = b3OffsetPos( base, transform.p );
@@ -303,6 +305,97 @@ public:
 
 static int sampleSourceBody = RegisterSample( "Gravity", "Source Body", SourceBody::Create );
 
+
+class AllSourceBodies : public Sample
+{
+    std::vector<b3GravitySource> m_gravitySources;
+public:
+    explicit AllSourceBodies( SampleContext* context )
+        : Sample( context )
+    {
+        if ( context->restart == false )
+        {
+            m_camera->SetView( 0.0f, 90.0f, 35.0f, { 0.0f, 0.0f, 0.0f });
+        }
+        BuildScene();
+    }
+    
+    static Sample* Create( SampleContext* context )
+    {
+        return new AllSourceBodies( context );
+    }
+    void BuildScene()
+    {
+        //Base large platform
+        {
+            b3BodyDef bodyDef = b3DefaultBodyDef();
+            bodyDef.position = { 0.0f, -1.0f, 0.0f };
+            b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
+
+            b3ShapeDef shapeDef = b3DefaultShapeDef();
+            b3BoxHull groundHull = b3MakeBoxHull( 400.0f, 1.0f, 400.0f );
+            b3ShapeId groundShapeId = b3CreateHullShape( groundId, &shapeDef, &groundHull.base );
+            SetGroundShape( groundShapeId );
+        }
+    
+        int numberOfBalls = 3200;
+        int numberOfRings = 500;
+        float radiusOfBalls = 0.5;
+        
+        int ballsPerRing = numberOfBalls/numberOfRings;
+        int ballsOverflow = numberOfBalls%numberOfRings;
+        
+        float minRadius = radiusOfBalls / sin(B3_PI / ballsPerRing);
+        float maxRadius = 5;
+        
+        b3Pos centerOfSpiral = {0,1,0};
+        
+        for(int i = 0; i < numberOfRings; i++)
+        {
+            int inRing = ballsPerRing + ((i == numberOfRings-1)? ballsOverflow : 0);
+            
+            double step = 2 * B3_PI / inRing;
+            
+            for(int j = 0 ; j < inRing ; j++)
+            {
+                b3BodyDef bodyDef = b3DefaultBodyDef();
+                bodyDef.type = b3_dynamicBody;
+                bodyDef.isEnabled = true;
+                
+                float angle = step * j + i;
+                
+                float x = cos(angle);
+                float z = sin(angle);
+                
+                bodyDef.position = centerOfSpiral + ((b3Vec3){x,0,z}) * (i * radiusOfBalls * 2.01 + minRadius + 5);
+                bodyDef.name = "object";
+                b3BodyId m_sphereBodyId = b3CreateBody( m_worldId, &bodyDef );
+                m_gravitySources.push_back({{0},{0},m_sphereBodyId,1,true,true});
+                b3Sphere sphere = { { 0.0f, 0.5f, 0.0f }, radiusOfBalls};
+
+                b3ShapeDef shapeDef = b3DefaultShapeDef();
+                shapeDef.density = 2.0f;
+                
+                b3CreateSphereShape( m_sphereBodyId, &shapeDef, &sphere );
+            }
+        }
+        
+        for (int i = m_gravitySources.size() -1; i >=0; i--)
+        {
+            for(int j = m_gravitySources.size()-1 ; j >= 0 ; j--)
+            {
+                if(i!=j)
+                {
+                    b3Body_AddGravitySource(m_gravitySources[i].sourceBodyId, m_gravitySources[j]);
+                }
+            }
+        }
+    }
+};
+
+static int sampleAllSourceBodies = RegisterSample( "Gravity", "All source Bodies", AllSourceBodies::Create );
+
+
 class StressTest : public Sample
 {
 public:
@@ -348,8 +441,6 @@ public:
             double radiusStep = B3_PI / numberOfRings;
             double heightStep = B3_PI / numberOfRings;
             
-            std::cout<<"balls per ring: "<<ballsPerRing<<", ballsOverflow: "<<ballsOverflow<<", heightStep of "<<radiusStep<<"\n";
-
             for(int i = 0; i < numberOfRings; i++)
             {
                 int inRing = ballsPerRing + ((i == numberOfRings-1)? ballsOverflow : 0);
@@ -390,3 +481,5 @@ public:
 };
 
 static int sampleStressTest = RegisterSample( "Gravity", "Stress Test", StressTest::Create );
+
+
