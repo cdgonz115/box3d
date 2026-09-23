@@ -2,12 +2,11 @@
   <img alt="Box3D for Godot" width="640" src="godot/branding/GodotBox3DLogo.svg">
 </p>
 
-# Box3D for Godot
-
-**[Box3D](https://github.com/erincatto/box3d)**, Erin Catto's 3D rigid-body
-physics engine, embedded in **[Godot 4](https://godotengine.org)** as a
-GDExtension: drop in a `Box3DWorld`, add `Box3DBody` nodes, and simulate.
-
+# cdgonz115 implementation of Box3D with extension for Godot
+Modified version of **[Box3D](https://github.com/erincatto/box3d)** , 3D rigid-body
+physics engine by Erin Catto. Implementation into  **[Godot 4](https://godotengine.org)** as a
+[GDExtension](https://github.com/Stink-O/box3d-godot.git) by Kyle Gogan. 
+Repo exists as a way for me to continue making changes to box3d and have the godot extension reflect them.
 <p align="center">
   <a href="https://godotengine.org/download"><img alt="Godot 4.7" src="https://img.shields.io/badge/Godot-4.7-478cbf?logo=godotengine&logoColor=white"></a>
   <a href="https://github.com/Stink-O/box3d-godot/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/Stink-O/box3d-godot"></a>
