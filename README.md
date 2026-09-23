@@ -1,3 +1,346 @@
+<p align="center">
+  <img alt="Box3D for Godot" width="640" src="godot/branding/GodotBox3DLogo.svg">
+</p>
+
+# Box3D for Godot
+
+**[Box3D](https://github.com/erincatto/box3d)**, Erin Catto's 3D rigid-body
+physics engine, embedded in **[Godot 4](https://godotengine.org)** as a
+GDExtension: drop in a `Box3DWorld`, add `Box3DBody` nodes, and simulate.
+
+<p align="center">
+  <a href="https://godotengine.org/download"><img alt="Godot 4.7" src="https://img.shields.io/badge/Godot-4.7-478cbf?logo=godotengine&logoColor=white"></a>
+  <a href="https://github.com/Stink-O/box3d-godot/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/Stink-O/box3d-godot"></a>
+  <a href="https://stinkysunstep.itch.io/box3d-godot"><img alt="Play in browser" src="https://img.shields.io/badge/itch.io-play%20in%20browser-fa5c5c?logo=itchdotio&logoColor=white"></a>
+  <a href="https://github.com/Stink-O/box3d-godot/discussions"><img alt="Discussions" src="https://img.shields.io/badge/GitHub-discussions-24292f?logo=github"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+This is a fork of **[erincatto/box3d](https://github.com/erincatto/box3d)**. The
+upstream engine sources are unchanged; everything Godot-specific lives in
+**[`godot/`](godot/)**. The original Box3D README is preserved [below](#box3d).
+
+> **Early and experimental.** Box3D itself is v0.1.0 and this binding is young:
+> expect rough edges and API churn. It is a starting point to build on, not a
+> production dependency.
+
+**Contents:** [Features](#features) ·
+[New in 0.4.3](#new-in-043) ·
+[Browser demo](#try-it-in-a-browser-first) ·
+[Getting started](#getting-started) ·
+[Your own project](#add-box3d-to-your-own-project) ·
+[Troubleshooting](#if-something-goes-wrong)
+
+## Features
+
+- **Near-complete API parity with upstream Box3D** across 21 documented
+  classes: worlds; static/kinematic/dynamic bodies;
+  box/sphere/capsule/cylinder/cone/convex-hull/triangle-mesh/height-field
+  colliders; nine joints (hinge, slider, distance, ball, fixed, motor, wheel,
+  parallel, filter); contact and sensor events; ray/shape/overlap queries; a
+  character controller with spring suspension; continuous collision; recording
+  and replay; and live solver tuning. The gaps are deliberate and documented:
+  upstream's external task-system hooks stay unbound for thread-safety, and
+  the raw solver callbacks ship as the `Box3DContactRules` data table instead
+  of script callbacks.
+- **Feels native in the editor.** Every class carries in-editor documentation
+  (F1 answers for the binding the way it does for a built-in node), and
+  colliders and joints draw editor gizmos: a hinge shows its axis and limit
+  arc before you ever press play.
+- **One zip to install.** Every
+  [release](https://github.com/Stink-O/box3d-godot/releases) ships one
+  `addons/box3d/` zip with prebuilt libraries for Windows, Linux, Android and
+  web; unzip it next to your `project.godot` and restart Godot. A second zip
+  is the whole demo project, ready to open in Godot. Building it yourself is
+  one `scons` command, no prebuilt engine binary required.
+- **A 70-sample browser demo**: stacks, a ragdoll, a drivable car, joints,
+  queries, determinism showcases and toys, organised by category, with a
+  physics-engine selector that reruns any sample on Godot Physics or Jolt for
+  side-by-side comparison.
+- **Runs on Android** (arm64 + x86_64), verified on real hardware under
+  Vulkan, with touch controls and a mobile-scaled UI. Toolchain walkthrough:
+  [`godot/ANDROID_BUILD.md`](godot/ANDROID_BUILD.md).
+
+## New in 0.4.3
+
+- **One-zip install.** The release is now a single `addons/box3d/` zip with
+  every platform's library inside, the way godot-jolt and Terrain3D ship.
+  Unzip next to `project.godot`, restart Godot, done. The loose per-platform
+  files are gone; Godot exports only the library that matches your target, so
+  the extra platforms in the zip cost your game nothing.
+- **Wind Drop sample**: a thin plate gliding down through still air, the
+  upstream "Wind Drop" sample. There is no drag setting in Box3D; the
+  float-down is `apply_wind` computing projected-area drag and lift against
+  the plate's own velocity. Toggle the air off and it drops like a stone.
+- **`max_spring_torque`** on `Box3DBallJoint` and `Box3DHingeJoint`: a torque
+  ceiling on the pose spring, so a joint can be stiff without winning at any
+  cost. Implemented entirely in the extension, no upstream patch.
+- **`Box3DBody.set_target_transform`**: upstream's velocity-based kinematic
+  drive, for moving a kinematic body to a pose in one step without teleporting.
+- **Web demo no longer freezes on Wave Pile.** The 8-worker replay joined
+  threads the browser had not started yet; the export's thread pool is larger
+  and the sample yields before it closes a replay.
+- Upstream synced through Box3D's broad-phase rewrite (three upstream
+  commits: clockwise mesh winding, `b3Joint_IsAwake`, fixes, faster
+  broad-phase).
+
+## New in 0.4.2
+
+- **Record and replay any sample, with a timeline.** Two buttons in the demo
+  sidebar capture a whole session, including everything you do to it (fired
+  balls, bombs, grab-drags). A draggable timeline scrubs the result in both
+  directions, plays it backwards, and single-steps either way. The timeline is
+  very early and still needs iteration: expect rough edges in its UI and
+  behaviour, and expect it to change between releases. Reverse
+  playback reads cached transforms instead of re-simulating, so scrubbing a
+  16,000-body pyramid collapse costs milliseconds a frame; recordings larger
+  than the memory budget spill to a temp file and stay scrubbable end to end.
+- **Replays look like the scene you recorded.** A small sidecar file captures
+  each body's colour and material response at record time (the `.b3rec`
+  recording itself stays byte-identical to upstream's format); replaying a
+  recording made at one worker count on another is a live cross-thread
+  determinism check, verified on desktop at 1, 2, 4 and 8 workers.
+- **In-editor gizmos** for every collider type and all nine joints, drawn in
+  upstream's own debug palette so the editor and the runtime overlay agree.
+- **Debug shells for every collider** in the demo's debug view: convex hulls,
+  height fields and fitted meshes included, not just primitives.
+- **Bombs work everywhere**: the demo's blast now auto-calibrates to scenes
+  authored at upstream's density, and a crash on exploding near dynamic
+  triangle-mesh bodies is guarded (the underlying upstream bug is written
+  up, with the fix located, ready to file).
+- Smaller: the sample picker groups by category and highlights where you are;
+  saving a recording is instant and threaded with a visible progress state;
+  spacebar drives the replay transport.
+
+<p align="center">
+  <img width="620" height="336" alt="pyramid_boom" src="https://github.com/user-attachments/assets/5f9e5d4d-092c-4286-b80b-9d4fb3b6ae62" />
+</p>
+
+https://github.com/user-attachments/assets/b3b04613-ed57-417e-822d-665f057b7d5c
+
+https://github.com/user-attachments/assets/33752918-c3a2-4899-821c-bf13d9adce11
+
+## Try it in a browser first
+
+**[Play it on itch.io](https://stinkysunstep.itch.io/box3d-godot)**: the demo
+in a browser, no download, multi-threaded solver, full-size scenes. Desktop,
+Android and iOS all run that threaded build there. The same build is
+downloadable from [Releases](https://github.com/Stink-O/box3d-godot/releases)
+as `box3d-demo-web-threaded.zip` if you want to host your own; it needs a host
+that sends cross-origin isolation headers (COOP/COEP), which plain static
+hosting does not. To run the same demo natively, `0-box3d-demo-project.zip` on
+the same release is the whole project ready to open in Godot.
+
+**It is a preview, not the real thing.** Running the demo in Godot is the
+intended way and the only one that shows the binding at full speed. The browser
+build is slower on purpose and by circumstance: WebAssembly costs something over
+native, and it renders through the Compatibility (WebGL2) renderer because
+Godot 4.7 has no WebGPU. Judge performance from a desktop run, not from the
+page. Determinism on wasm is unverified, so the browser build is not a
+reference for behaviour.
+
+## Getting started
+
+Never used a GDExtension before? This walks the whole way, from nothing
+installed to a crate falling onto a floor. **You do not need a compiler.** The
+extension is a small prebuilt library that you download and drop into a folder.
+Building it yourself is optional and covered in
+[Building](godot/README.md#building).
+
+> [!TIP]
+> **Just want to run the demo?** Install [Godot 4.7](https://godotengine.org/download),
+> download `0-box3d-demo-project.zip` from the
+> [latest release](https://github.com/Stink-O/box3d-godot/releases/latest),
+> unzip it, then open `box3d-demo/project.godot` in Godot (or press **Scan** in the
+> project manager and point it at the unzipped folder) and press play. That zip
+> is the whole demo with the extension already inside, so steps 2 to 4 below
+> are only for people who want the repository too.
+
+The short version with the repository: install Godot 4.7, get this
+repository, download the addon zip from
+[Releases](https://github.com/Stink-O/box3d-godot/releases) and unzip it into
+`godot/demo/`, open `godot/demo/project.godot`, press play. The long version:
+
+<details>
+<summary><b>Step 1: install Godot 4.7</b></summary>
+
+Download it from [godotengine.org/download](https://godotengine.org/download).
+Godot is a single executable with no installer: unzip it and run it. The normal
+(non-.NET) download is the simplest choice.
+
+**The version matters.** This extension declares a minimum of Godot 4.7, so
+4.6 and earlier will refuse to load it. If in doubt, check `Help > About` in
+the editor.
+</details>
+
+<details>
+<summary><b>Step 2: get this repository</b></summary>
+
+Either clone it:
+
+```sh
+git clone https://github.com/Stink-O/box3d-godot
+```
+
+or, if you do not use git, open the
+[repository page](https://github.com/Stink-O/box3d-godot), click the green
+**Code** button and choose **Download ZIP**, then unzip it somewhere.
+</details>
+
+<details>
+<summary><b>Step 3: download the addon zip</b></summary>
+
+Go to [Releases](https://github.com/Stink-O/box3d-godot/releases), open the
+newest one and look under **Assets**. Download
+`box3d-addon-v<version>.zip`. That one file holds the library for every
+platform: Windows, Linux, Android and web. There is nothing to pick.
+
+macOS is not prebuilt. Play the
+[browser demo](https://stinkysunstep.itch.io/box3d-godot), or
+[build from source](godot/README.md#building).
+
+Windows note: the DLLs are cross-compiled from Linux and have never been run on
+Windows by the author. They may work fine, but they are untested. If Windows
+SmartScreen or your antivirus flags a downloaded DLL, that is the usual
+unsigned-binary warning rather than a sign of a problem.
+</details>
+
+<details>
+<summary><b>Step 4: unzip it into the demo</b></summary>
+
+Unzip the file into this folder inside the repository:
+
+```
+box3d-godot/godot/demo/
+```
+
+so that the result is `godot/demo/addons/box3d/`. That folder already exists
+in the repository with the manifest (`box3d.gdextension`) and the icons; the
+zip adds the `bin/` folder with the libraries. Do not rename anything: the
+manifest names each library character for character.
+
+When you are done the folder looks like this:
+
+```
+godot/demo/addons/box3d/
+  box3d.gdextension
+  LICENSE
+  README.md
+  bin/
+    libbox3d_godot.linux.template_debug.x86_64.so
+    libbox3d_godot.linux.template_release.x86_64.so
+    libbox3d_godot.windows.template_debug.x86_64.dll
+    ...
+  icons/
+```
+
+**Why two files per platform?** The `template_debug` one is what the Godot
+editor itself loads, so it is the one you need to press play. The
+`template_release` one is used when you export a finished game.
+</details>
+
+<details>
+<summary><b>Steps 5 and 6: open the project and press play</b></summary>
+
+Start Godot. On the Project Manager screen click **Import**, browse to
+`box3d-godot/godot/demo/project.godot`, and open it. Godot will import the
+assets once, which takes a moment the first time.
+
+Hit **F5** (or the play button, top right). The demo opens on its first sample.
+The **Samples** button in the top bar drops down the full list, grouped by
+category and marking the sample you are on.
+</details>
+
+The controls worth knowing straight away:
+
+- **Left-click and drag** grabs a body at the exact point you clicked and lets
+  you throw it. While holding one, the **scroll wheel** reels it closer or
+  pushes it further away.
+- **Hold right mouse** to fly the camera with **W A S D**, plus **Q** and **E**
+  for down and up, and **Shift** to move faster.
+- **Hold F** to charge a shot and release to fire a ball from the camera. The
+  longer you hold, the harder it goes. The **Shot** selector in the top bar
+  swaps the ball for a fused bomb or a ragdoll.
+- The **Settings** button opens a panel on the right: solver tuning, debug
+  draw, the recorder, and an engine selector that reruns the same sample on
+  **Godot Physics** or **Jolt**, which is the quickest way to see what the
+  binding is actually doing.
+
+## Add Box3D to your own project
+
+Once the demo runs, using the extension in a project of your own is three
+steps.
+
+**1. Unzip the addon zip next to your `project.godot`**, so that your project
+contains `addons/box3d/`. (Or copy `godot/demo/addons/box3d/` from the
+repository, which is the same folder.) The manifest's paths are relative to
+`res://addons/box3d/`, so the folder must keep that name and nothing needs
+editing.
+
+**2. Restart Godot.** Extensions are loaded at startup, so a project that was
+already open will not see a newly added one until you close and reopen it.
+
+**3. Check that it worked.** Add a new node and type `Box3DWorld` into the
+search box. If it appears, the extension is loaded. If it does not, see the
+troubleshooting table below.
+
+Now make something fall. Create a `Node3D`, attach this script, and press play:
+
+```gdscript
+extends Node3D
+
+func _ready() -> void:
+    # Everything physical has to live under a Box3DWorld.
+    var world := Box3DWorld.new()
+    add_child(world)
+
+    var ground := Box3DBody.new()
+    ground.body_type = Box3DBody.STATIC   # static bodies never move
+    ground.box_size = Vector3(20, 1, 20)
+    ground.position = Vector3(0, -0.5, 0)
+    ground.auto_visual = true             # give it a mesh so you can see it
+    world.add_child(ground)
+
+    var crate := Box3DBody.new()          # dynamic is the default
+    crate.position = Vector3(0, 5, 0)
+    crate.auto_visual = true
+    world.add_child(crate)
+```
+
+You will need a `Camera3D` pointed at the origin to see it, and a light such as
+a `DirectionalLight3D` so the shapes are not flat black. `auto_visual` is a
+convenience that generates a mesh matching the collider, which is handy while
+learning; for real work you add your own `MeshInstance3D` children.
+
+From here, [`godot/README.md`](godot/README.md) documents every node, property
+and joint.
+
+## If something goes wrong
+
+| What you see | What it usually means |
+| --- | --- |
+| `Box3DWorld` is not in the node list | The addon is missing, in the wrong folder, or renamed. The folder must be `addons/box3d/` next to `project.godot`, with `box3d.gdextension` and `bin/` inside it. Restart Godot after adding it. |
+| An error about the extension needing a newer version | You are on Godot 4.6 or earlier. Install 4.7. |
+| It works in the editor but the exported game crashes on start | The `template_release` library is missing. Export uses that one, the editor uses `template_debug`. |
+| Godot loads but every sample is empty | The project was opened before the library was added. Close the project and reopen it. |
+| Nothing at all happens on macOS | There is no prebuilt macOS library. Build from source or use the browser demo. |
+| A downloaded `.dll` is flagged by antivirus | Expected for unsigned binaries. These particular DLLs are also untested on Windows. |
+
+**Full docs:** see [`godot/README.md`](godot/README.md). Questions, ideas
+and anything else: [Discussions](https://github.com/Stink-O/box3d-godot/discussions).
+
+Inspired by the [`box3d-unity`](https://github.com/timskap/box3d-unity) binding,
+which does the same for Unity.
+
+> [!IMPORTANT]
+> **Want to run the demo in Godot?** Download **`0-box3d-demo-project.zip`** from the [latest release](https://github.com/Stink-O/box3d-godot/releases/latest), unzip it, then either open `box3d-demo/project.godot` in Godot 4.7, or press **Scan** in the Godot project manager and point it at the unzipped folder. Press play. Nothing else to install.
+>
+> **Want Box3D in your own project?** Download **`box3d-addon-v<version>.zip`** from the same release and unzip it next to your `project.godot`, then restart Godot.
+
+---
+
+<sub>The rest of this file is the upstream Box3D README.</sub>
+
 # Box3D
 
 [![Build Status](https://github.com/erincatto/box3d/actions/workflows/build.yml/badge.svg)](https://github.com/erincatto/box3d/actions)

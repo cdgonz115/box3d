@@ -1,0 +1,681 @@
+extends Camera3D
+
+## Free-fly camera + physics dragging, shared across all samples.
+##   Hold RIGHT MOUSE : look around; fly with W A S D and Q / E (Shift = boost)
+##   LEFT MOUSE drag  : when not flying, grab a Box3DBody at the point you
+##                      clicked and drag that point around (pivots off-center
+##                      grabs, e.g. a table's edge, instead of re-centering it)
+##   SCROLL wheel     : while holding a body, reel it along the aim ray —
+##                      scroll up pushes it away, scroll down pulls it to you
+##   F                : hold to charge a shot 0 -> 1 over ~1s, release to fire
+##                      (a quick tap still fires a light shot)
+##
+## The sample browser calls set_world() each time a sample loads, then (if the
+## sample's root script exports camera_home / camera_look_at) frame_view() to
+## point the camera at that scene's action.
+
+@export var move_speed := 8.0
+@export var boost_multiplier := 3.0
+@export var look_sensitivity := 0.0028
+@export var look_target := Vector3(0, 2.5, 0)
+@export var home_position := Vector3(0, 7, 16)
+@export var shoot_speed_min := 20.0
+@export var shoot_speed_max := 70.0
+@export var charge_time := 1.0  ## seconds held to reach full charge
+@export var shoot_radius := 0.35
+@export var shoot_lifetime := 20.0
+@export var grab_reel_step := 0.1  ## fraction of the grab distance per scroll notch
+
+## Either a Box3DWorld or the NativeWorld stand-in (common/native_world.gd)
+## when a sample is running on Godot Physics or Jolt. Everything backend-
+## specific the camera does with it goes through WorldOps.
+var _world: Node3D
+var _flying := false
+## Collision layer 2 is the demos' invisible-guard layer (e.g. the marble
+## run's front glass): contained bodies bounce off it, but camera rays AND
+## the camera's projectiles (shot ball / bomb) skip it, so you can aim,
+## grab, and shoot into a guarded area from outside. Box3D only collides two
+## shapes when both masks agree, so the guard's own mask can stay "all".
+const RAY_MASK := 0xFFFFFFFF ^ 2
+## How far from horizontal the view may tilt, radians (~86 deg), shared by the
+## free-fly look and the third-person boom. Upstream clamps its own camera the
+## same way and for the same reason (samples/sample.cpp: +-85 deg): at the pole
+## a look_at / Basis.looking_at with up = UP is degenerate, and the view snaps
+## through a 180 deg roll as it crosses.
+const PITCH_LIM := 1.5
+
+var _yaw := 0.0
+var _pitch := 0.0
+## The grab is box3d's own samples' scheme: a collisionless KINEMATIC "mouse
+## body" follows the cursor, tied to the grabbed body by a Box3DMotorJoint
+## position spring (critically damped, force-capped) anchored at the point
+## you clicked, with max_torque acting as angular friction. Compliant and
+## calm — unlike a velocity override, it doesn't tremble the held body (a
+## held car's wheels used to bob on their suspensions from that jitter).
+## WorldOps builds the same rig with the same numbers on a native engine, where
+## the spring has to be stepped by hand (see WorldOps.drive_grab).
+var _grabbed: Node3D = null
+var _grab_distance := 0.0
+var _grab_mouse_body: Node3D = null
+var _grab_joint: Node = null
+
+var _charging := false
+var _charge := 0.0
+var _charge_bar: ProgressBar = null
+
+## --- Touch (phones/tablets; see common/touch_controls.gd for the buttons) ---
+## One-finger drag that DIDN'T land on a body looks around (the grab raycast
+## runs first, exactly like desktop left-click, so touching a body still grabs
+## it). Two fingers: pinch to dolly along the view, drag to pan. All of it is
+## keyed off _touch_mode, so none of these paths exist on desktop.
+## Everything is driven by RAW per-index touches, never the emulated mouse:
+## the synthetic mouse mirrors whichever finger went down first ANYWHERE (a
+## thumb resting on the joystick owns it), and on iOS Safari it can hop
+## between fingers mid-gesture, slewing the camera with one huge delta.
+## Owning the gesture by touch index also means look/grab work with a thumb
+## on the joystick — the second finger is a first-class pointer here.
+var _touch_mode := false
+var _touches := {}                ## raw touch index -> screen position
+var _touch_looking := false       ## one-finger look drag in progress
+var _touch_pointer := -1          ## touch index that owns grab / look / orbit
+var _pinch_last_dist := 0.0
+var _pan_last_mid := Vector2.ZERO
+@export var touch_dolly_speed := 0.02   ## world units per pixel of pinch
+@export var touch_pan_speed := 0.008    ## world units per pixel of two-finger drag
+
+## Third-person follow (samples opt in through the shell's toggle button).
+## A standard orbit rig: the camera sits EXACTLY on an orbit sphere around a
+## smoothed pivot and is hard-aimed at it, so HOLD-RIGHT-MOUSE orbiting is
+## 1:1 with the mouse (vertical inverted, flight-style) and the orbit STAYS
+## where you put it until the follow ends. Only the pivot (the target's
+## position) and the rig's base heading (the target's yaw) are smoothed —
+## that's what keeps the chase steady without making the camera itself feel
+## laggy. Runs in _physics_process, in lockstep with the body it chases.
+## Toggling off glides the camera back to where the free camera was.
+var _follow: Node3D = null
+var _follow_anchor := Vector3(-8.0, 3.2, 0.0)  ## chase offset in the target's yaw frame
+var _follow_look_height := 1.2
+var _follow_saved_pose := Transform3D()
+var _orbiting := false     ## right mouse held: mouse drags the orbit angles
+var _orbit_yaw := 0.0      ## user orbit offsets around the chase anchor (kept on release)
+var _orbit_pitch := 0.0
+## Orbit pitch bounds. The chase anchor is ALREADY tilted up (a boom sits above
+## the target) and _orbit_pitch adds to that, so the headroom the user gets is
+## whatever is left of PITCH_LIM -- set_follow() works it out per anchor. With a
+## flat cap instead, the Car's 21.8 deg boom plus 1.3 rad of orbit swung the
+## camera 6 deg PAST straight-up, where the aim basis is degenerate: the view
+## flipped on the way over and unflipped on the way back.
+const ORBIT_PITCH_MIN := -0.6
+var _orbit_pitch_max := PITCH_LIM
+var _pivot := Vector3.ZERO ## smoothed orbit centre (the target, a beat behind)
+var _heading := 0.0        ## smoothed target yaw the rig hangs from
+var _follow_blend := 1.0   ## 0 -> 1 entry blend from the free pose onto the rig
+var _blend_from := Transform3D()
+var _returning := false    ## gliding back to _follow_saved_pose after clear_follow()
+@export var follow_smoothing := 5.0  ## 1/s glide rate for the toggle-off return
+@export var follow_pivot_smoothing := 12.0  ## 1/s pivot chase (higher = tighter)
+@export var follow_heading_smoothing := 5.0  ## 1/s how fast the rig re-centres behind a turn
+@export var follow_blend_time := 0.5  ## seconds to blend onto the rig when toggled on
+
+const BOMB_SCENE := preload("res://common/bomb.tscn")
+const RAGDOLL_SCENE := preload("res://common/ragdoll_figure.tscn")
+const Despawn = preload("res://common/despawn.gd")
+
+enum ShotKind { BALL, BOMB, RAGDOLL }
+var _shot_kind := ShotKind.BALL  ## what F fires
+var bomb_blast_impulse := 9.0  ## from the shell's blast slider
+var bomb_impact_detonation := true  ## from the shell's impact checkbox
+
+
+# Shell calls this to switch what F shoots (matches its dropdown order).
+func set_shot_kind(kind: int) -> void:
+	_shot_kind = clampi(kind, ShotKind.BALL, ShotKind.RAGDOLL)
+
+
+func _ready() -> void:
+	_touch_mode = DisplayServer.is_touchscreen_available()
+	_reset_pose()
+
+
+## Touch-layer twin of holding / releasing F (see touch_controls.gd's SHOOT).
+func begin_charge() -> void:
+	_start_charge()
+
+
+func end_charge() -> void:
+	_release_charge()
+
+
+## The virtual joystick's camera mode: fly like desktop WASD, analog. Stick up
+## flies toward where you're looking (pitch included, same as W), stick
+## sideways strafes. Called every frame while the stick is deflected.
+func touch_move(v: Vector2, delta: float) -> void:
+	if _follow != null or _returning:
+		return  # third person / glide-home owns the camera
+	var dir := -transform.basis.z * -v.y + transform.basis.x * v.x
+	position += dir * move_speed * delta
+
+
+# Point the camera at a newly loaded sample's world and reset to the default
+# framing. A sample can override the framing afterwards via frame_view().
+func set_world(world: Node3D) -> void:
+	_end_grab()
+	_world = world
+	_end_follow_states()  # the new sample owns the framing; nothing to restore
+	_reset_pose()
+
+
+# Point at a rebuilt world (e.g. after Reset) WITHOUT moving the camera, so the
+# view the user flew to is preserved.
+func set_world_keep_view(world: Node3D) -> void:
+	_end_grab()
+	_world = world
+	_end_follow_states()
+
+
+func _end_follow_states() -> void:
+	_follow = null
+	_returning = false
+	_orbiting = false
+	_orbit_yaw = 0.0
+	_orbit_pitch = 0.0
+	_touch_looking = false  # sample switch mid-drag: don't carry the look over
+
+
+# True while the third-person follow owns the camera. Samples use this to
+# keep W A S D driving even though the orbit drag captures the mouse (the
+# capture gate exists to protect the FLY camera, which isn't active here).
+func is_following() -> bool:
+	return _follow != null
+
+
+# Chase `target` third-person: glide to `local_anchor` in the target's
+# yaw-only frame (x = along its nose, y = height, z = sideways) and keep
+# looking at it. The current free-camera pose is saved; clear_follow()
+# glides back to it.
+func set_follow(target: Node3D, local_anchor := Vector3(-8.0, 3.2, 0.0), look_height := 1.2) -> void:
+	# Re-following mid-return keeps the ORIGINAL saved pose as the way home.
+	if _follow == null and target != null and not _returning:
+		_follow_saved_pose = global_transform
+	_follow = target
+	_follow_anchor = local_anchor
+	_follow_look_height = look_height
+	var flat := Vector2(local_anchor.x, local_anchor.z).length()
+	_orbit_pitch_max = maxf(PITCH_LIM - atan2(local_anchor.y, flat), 0.0)
+	_returning = false
+	_orbit_yaw = 0.0
+	_orbit_pitch = 0.0
+	if target != null:
+		_pivot = target.global_position
+		var fwd: Vector3 = target.global_transform.basis.x
+		_heading = atan2(fwd.z, fwd.x)
+		_follow_blend = 0.0
+		_blend_from = global_transform
+
+
+# Stop following and glide the camera back to where it was when the follow
+# began (starting to fly with right mouse cancels the glide and takes over).
+func clear_follow() -> void:
+	if _follow != null:
+		_returning = true
+	_follow = null
+	if _orbiting:
+		_orbiting = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+# Frame the view from `home`, looking at `look_at`. Samples opt into custom
+# framing by exporting camera_home / camera_look_at on their root script; the
+# shell reads those and calls this. Simpler than a marker node -- just two
+# Vector3s you can edit in the inspector.
+func frame_view(home: Vector3, target: Vector3) -> void:
+	position = home
+	look_at(target, Vector3.UP)
+	_yaw = rotation.y
+	_pitch = rotation.x
+
+
+# Lets main.gd wire up the shared charge-meter without fly_camera needing to
+# know where it lives in the UI tree.
+func set_charge_bar(bar: ProgressBar) -> void:
+	_charge_bar = bar
+	if _charge_bar != null:
+		_charge_bar.visible = false
+		_charge_bar.min_value = 0.0
+		_charge_bar.max_value = 100.0
+		_charge_bar.value = 0.0
+
+
+func _reset_pose() -> void:
+	position = home_position
+	look_at(look_target, Vector3.UP)
+	_yaw = rotation.y
+	_pitch = rotation.x
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			# A finger resting on the touch overlay (stick, SHOOT, ...) is
+			# operating a control, not the camera: if it were tracked here, a
+			# world-drag while holding SHOOT would read as a two-finger pinch.
+			if TouchControls.active != null and TouchControls.active.owns_point(event.position):
+				return
+			_touches[event.index] = event.position
+			if _touch_mode and _touches.size() == 1:
+				# First world finger: the touch twin of a left-click. Grab the
+				# body under it, else look (or orbit, in third person). Owned
+				# by index, so it also works with a thumb on the joystick.
+				_touch_pointer = event.index
+				_try_grab_at(event.position)
+				if _grabbed == null:
+					if _follow != null:
+						_orbiting = true  # no pointer capture on a touchscreen
+					else:
+						_touch_looking = true
+			elif _touches.size() == 2:
+				# Second finger down: the gesture is now pinch/pan, not a
+				# look or a grab.
+				_touch_looking = false
+				if _touch_mode:
+					_orbiting = false
+				_end_grab()
+				var pts := _touch_points()
+				_pinch_last_dist = pts[0].distance_to(pts[1])
+				_pan_last_mid = (pts[0] + pts[1]) / 2.0
+		else:
+			_touches.erase(event.index)
+			if event.index == _touch_pointer:
+				_touch_pointer = -1
+				_touch_looking = false
+				if _touch_mode:
+					_orbiting = false
+					_end_grab()
+		return
+	elif event is InputEventScreenDrag:
+		if not _touches.has(event.index):
+			# A finger that pressed on the touch overlay (stick / SHOOT) was
+			# rejected above and stays untracked for its whole life. Letting
+			# its DRAGS insert it here made a wiggling joystick thumb count
+			# as half of a "pinch", twitching the camera in random directions
+			# while a second finger was looking around.
+			return
+		_touches[event.index] = event.position
+		if _touches.size() >= 2:
+			_update_pinch_pan()
+		elif event.index == _touch_pointer:
+			# This finger's OWN delta — never the emulated mouse's, which may
+			# be parked on another finger. (A touch-grabbed body needs nothing
+			# here: _drag_grabbed() reads _touches[_touch_pointer] each tick.)
+			# Spike guard: a real swipe never moves this far in one event, but
+			# a per-finger identity mix-up (seen on iOS Safari) teleports the
+			# "same" finger between two distant touch points. Drop the spike;
+			# the next event re-anchors cleanly.
+			if event.relative.length() > 200.0:
+				return
+			if _orbiting and _follow != null:
+				_orbit_by(event.relative)
+			elif _touch_looking:
+				_yaw -= event.relative.x * look_sensitivity
+				_pitch = clampf(_pitch - event.relative.y * look_sensitivity, -PITCH_LIM, PITCH_LIM)
+				rotation = Vector3(_pitch, _yaw, 0.0)
+		return
+
+	# In touch mode the raw handlers above own grab / look / orbit; letting
+	# the mouse events Godot synthesizes from the first finger through would
+	# drive the camera a second time. A real mouse (device id >= 0) plugged
+	# into a touch device still works.
+	if _touch_mode and event.device == InputEvent.DEVICE_ID_EMULATION \
+			and (event is InputEventMouseButton or event is InputEventMouseMotion):
+		return
+
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			if _follow != null:
+				# Third person: right mouse orbits the chase view around the
+				# target instead of flying (arrow keys keep driving).
+				_orbiting = event.pressed
+				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _orbiting else Input.MOUSE_MODE_VISIBLE
+			else:
+				# Grabbing the camera mid-glide cancels the return and flies
+				# from wherever the glide had reached.
+				if event.pressed:
+					_returning = false
+				_set_flying(event.pressed)
+		elif event.button_index == MOUSE_BUTTON_LEFT and not _flying:
+			if event.pressed:
+				_try_grab()
+			else:
+				_end_grab()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP \
+				or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			# Reel a held body along the aim ray: scroll up pushes it away,
+			# scroll down pulls it toward the camera. Multiplicative, so the
+			# step stays proportionate whether the body is 2 m or 50 m out;
+			# _drag_grabbed() re-projects the cursor ray at the new distance
+			# next physics tick, and the grab spring hauls the body after it.
+			if event.pressed and _grabbed != null:
+				var reel := 1.0 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1.0
+				var notch: float = event.factor if event.factor > 0.0 else 1.0
+				_grab_distance = clampf(
+						_grab_distance * (1.0 + reel * grab_reel_step * notch),
+						0.5, 500.0)
+	elif event is InputEventMouseMotion and _follow != null and _orbiting:
+		_orbit_by(event.relative)
+	elif event is InputEventMouseMotion and _flying:
+		_yaw -= event.relative.x * look_sensitivity
+		_pitch = clampf(_pitch - event.relative.y * look_sensitivity, -PITCH_LIM, PITCH_LIM)
+		rotation = Vector3(_pitch, _yaw, 0.0)
+	elif event is InputEventKey and not event.echo and event.keycode == KEY_F:
+		if event.pressed:
+			_start_charge()
+		else:
+			_release_charge()
+
+
+# Swing the third-person orbit by a pointer delta (right-mouse drag on desktop,
+# one finger on touch). Vertical inverted (flight-style): push the mouse up to
+# dip the camera and look up at the target -- but only as far as the boom can
+# rise without passing over the target's head (see _orbit_pitch_max).
+func _orbit_by(rel: Vector2) -> void:
+	_orbit_yaw -= rel.x * look_sensitivity
+	_orbit_pitch = clampf(_orbit_pitch + rel.y * look_sensitivity,
+			ORBIT_PITCH_MIN, _orbit_pitch_max)
+
+
+# The two lowest-index touches define the pinch/pan gesture.
+func _touch_points() -> Array:
+	var idx := _touches.keys()
+	idx.sort()
+	return [_touches[idx[0]], _touches[idx[1]]]
+
+
+func _update_pinch_pan() -> void:
+	var pts := _touch_points()
+	var dist: float = pts[0].distance_to(pts[1])
+	var mid: Vector2 = (pts[0] + pts[1]) / 2.0
+
+	# Pinch: spread to dolly in, squeeze to back away.
+	position += -transform.basis.z * (dist - _pinch_last_dist) * touch_dolly_speed
+	# Pan: drag both fingers to slide the view (drag right = look at what's
+	# left of you, i.e. the camera moves the other way -- map style).
+	var delta := mid - _pan_last_mid
+	position += (-transform.basis.x * delta.x + transform.basis.y * delta.y) * touch_pan_speed
+
+	_pinch_last_dist = dist
+	_pan_last_mid = mid
+
+
+func _set_flying(active: bool) -> void:
+	_flying = active
+	if active:
+		_end_grab()
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _process(delta: float) -> void:
+	_update_charge(delta)
+	if _follow != null:
+		if not is_instance_valid(_follow):
+			_follow = null  # target freed (reset/switch): stay put, follow ends
+		# Following is driven from _physics_process, in lockstep with the
+		# chased body -- moving here (at render rate, against a body that only
+		# moves per physics tick) makes the target judder relative to the view.
+		return
+	if _returning:
+		_update_return(delta)
+		return
+	if not _flying:
+		return
+	var dir := Vector3.ZERO
+	if Input.is_key_pressed(KEY_W): dir -= transform.basis.z
+	if Input.is_key_pressed(KEY_S): dir += transform.basis.z
+	if Input.is_key_pressed(KEY_A): dir -= transform.basis.x
+	if Input.is_key_pressed(KEY_D): dir += transform.basis.x
+	if Input.is_key_pressed(KEY_E): dir += Vector3.UP
+	if Input.is_key_pressed(KEY_Q): dir -= Vector3.UP
+	if dir != Vector3.ZERO:
+		var speed := move_speed
+		if Input.is_key_pressed(KEY_SHIFT):
+			speed *= boost_multiplier
+		position += dir.normalized() * speed * delta
+
+
+func _update_follow(delta: float) -> void:
+	# Smooth ONLY the pivot (where the target is) and the base heading (which
+	# way it faces); the camera itself then sits exactly on the orbit sphere
+	# and is hard-aimed at the pivot, so mouse orbiting is 1:1 and the target
+	# stays centred even through fast drags.
+	_pivot = _pivot.lerp(_follow.global_position, 1.0 - exp(-follow_pivot_smoothing * delta))
+	var nose: Vector3 = _follow.global_transform.basis.x
+	nose.y = 0.0
+	if nose.length_squared() > 0.001:
+		_heading = lerp_angle(_heading, atan2(nose.z, nose.x),
+				1.0 - exp(-follow_heading_smoothing * delta))
+
+	var fwd := Vector3(cos(_heading), 0.0, sin(_heading))
+	var side := Vector3.UP.cross(fwd)
+	var offset := fwd * _follow_anchor.x \
+			+ Vector3.UP * _follow_anchor.y + side * _follow_anchor.z
+
+	# User orbit: swing the offset around the pivot (yaw about UP, then pitch
+	# about the swung offset's own side axis) -- applied EXACTLY, no easing.
+	offset = offset.rotated(Vector3.UP, _orbit_yaw)
+	var horiz := Vector3(offset.x, 0.0, offset.z)
+	if horiz.length_squared() > 0.001:
+		offset = offset.rotated(horiz.normalized().cross(Vector3.UP), _orbit_pitch)
+
+	var desired := _pivot + offset
+
+	# Don't sink the rig into a hill (or a wall): cast from safely above the
+	# pivot (clear of the target's own collider even when it pitches) and
+	# pull the camera in front of whatever the ray hits.
+	if _world != null:
+		var from := _pivot + Vector3.UP * maxf(_follow_look_height, 1.2)
+		var hit := WorldOps.raycast(_world, from, desired, RAY_MASK)
+		if hit.get("hit", false):
+			desired = (hit["position"] as Vector3).lerp(from, 0.1)
+
+	var aim_point := _pivot + Vector3.UP * _follow_look_height
+
+	# Short one-way blend from the free pose onto the rig when toggled on;
+	# once it completes the camera IS the rig, with zero lag of its own.
+	_follow_blend = minf(_follow_blend + delta / maxf(follow_blend_time, 0.001), 1.0)
+	var t := smoothstep(0.0, 1.0, _follow_blend)
+	global_position = _blend_from.origin.lerp(desired, t) if t < 1.0 else desired
+
+	var to_target := aim_point - global_position
+	if to_target.length_squared() > 0.01 and absf(to_target.normalized().y) < 0.999:
+		var aim := Basis.looking_at(to_target, Vector3.UP).get_rotation_quaternion()
+		if t < 1.0:
+			aim = _blend_from.basis.get_rotation_quaternion().slerp(aim, t)
+		global_transform.basis = Basis(aim)
+	_yaw = rotation.y
+	_pitch = rotation.x
+
+
+func _update_return(delta: float) -> void:
+	# Glide home to the pose saved when the follow began, then snap the last
+	# hair's-breadth so the restore is exact.
+	var t := 1.0 - exp(-follow_smoothing * delta)
+	position = position.lerp(_follow_saved_pose.origin, t)
+	var target_q := _follow_saved_pose.basis.get_rotation_quaternion()
+	var q := global_transform.basis.get_rotation_quaternion().slerp(target_q, t)
+	global_transform.basis = Basis(q)
+	if position.distance_to(_follow_saved_pose.origin) < 0.05 \
+			and q.angle_to(target_q) < 0.01:
+		global_transform = _follow_saved_pose
+		_returning = false
+	_yaw = rotation.y
+	_pitch = rotation.x
+
+
+func _update_charge(delta: float) -> void:
+	if _charging:
+		_charge = clampf(_charge + delta / maxf(charge_time, 0.001), 0.0, 1.0)
+	if _charge_bar != null:
+		_charge_bar.visible = _charging
+		_charge_bar.value = _charge * 100.0
+
+
+func _start_charge() -> void:
+	_charging = true
+	_charge = 0.0
+
+
+func _release_charge() -> void:
+	if not _charging:
+		return
+	_charging = false
+	var charge := _charge
+	_charge = 0.0
+	_shoot(charge)
+
+
+func _physics_process(delta: float) -> void:
+	_drag_grabbed()
+	if _follow != null and is_instance_valid(_follow):
+		_update_follow(delta)
+
+
+func _try_grab() -> void:
+	_try_grab_at(get_viewport().get_mouse_position())
+
+
+func _try_grab_at(screen_pos: Vector2) -> void:
+	if _world == null:
+		return
+	var from := project_ray_origin(screen_pos)
+	var dir := project_ray_normal(screen_pos)
+	var hit := WorldOps.raycast(_world, from, from + dir * 500.0, RAY_MASK)
+	if hit.get("hit", false):
+		var body = hit.get("collider")
+		if WorldOps.is_dynamic_body(body):
+			_begin_grab(body, hit["position"], from.distance_to(hit["position"]))
+
+
+# Build the mouse-body + motor-joint grab rig at the clicked point, mirroring
+# upstream sample.cpp (linear spring 7.5 Hz / damping 1 / force cap 100 mg,
+# angular friction ~0.5 * lever * mg).
+func _begin_grab(body: Node3D, hit_pos: Vector3, distance: float) -> void:
+	_end_grab()
+	_grabbed = body
+	_grab_distance = distance
+	var to_world_local: Transform3D = _world.global_transform.affine_inverse()
+
+	_grab_mouse_body = WorldOps.spawn_kinematic_sphere(
+			_world, to_world_local * hit_pos, 0.05)
+	_grab_joint = WorldOps.make_grab_joint(
+			_world, _grab_mouse_body, body, to_world_local * hit_pos)
+
+
+func _end_grab() -> void:
+	if is_instance_valid(_grab_joint):
+		_grab_joint.queue_free()
+	if is_instance_valid(_grab_mouse_body):
+		_grab_mouse_body.queue_free()
+	_grab_joint = null
+	_grab_mouse_body = null
+	_grabbed = null
+
+
+func _drag_grabbed() -> void:
+	if _grabbed == null or _flying:
+		return
+	if not (is_instance_valid(_grabbed) and is_instance_valid(_grab_mouse_body)):
+		_end_grab()  # sample reset/switch freed the world under the grab
+		return
+	# The kinematic mouse body chases the pointer; the joint's spring hauls
+	# the grabbed body after it. On touch the pointer is the grab finger's
+	# own tracked position (the emulated mouse may be parked on the joystick
+	# thumb); on desktop it is the cursor.
+	var screen: Vector2
+	if _touch_pointer != -1 and _touches.has(_touch_pointer):
+		screen = _touches[_touch_pointer]
+	else:
+		screen = get_viewport().get_mouse_position()
+	var from := project_ray_origin(screen)
+	var dir := project_ray_normal(screen)
+	WorldOps.set_body_transform(_grab_mouse_body,
+			Transform3D(_grab_mouse_body.global_basis, from + dir * _grab_distance))
+	# On Box3D the solver steps the spring; on a native engine WorldOps has to.
+	WorldOps.drive_grab(_world, _grab_mouse_body, _grabbed, _grab_joint)
+
+
+## The ball MESH is shared by WorldOps (one per radius, both backends); only the
+## material is the camera's own.
+var _ball_mat: StandardMaterial3D
+
+
+# Launch a fast CCD ball from the camera, aimed through the mouse (or straight
+# ahead while flying, since the cursor is captured). `charge` in [0, 1] scales
+# the launch speed between shoot_speed_min and shoot_speed_max; a quick tap
+# fires at charge ~0 (a light shot). Balls self-destruct after shoot_lifetime
+# so they don't pile up forever.
+func _shoot(charge: float = 0.0) -> void:
+	if _world == null:
+		return
+	var origin: Vector3
+	var dir: Vector3
+	if _flying:
+		origin = global_position
+		dir = -global_transform.basis.z
+	elif _touch_mode:
+		# Touch: the emulated "mouse" sits wherever the finger last was --
+		# usually the SHOOT button itself. Aim through the screen centre
+		# instead (the crosshair the touch layer draws): shoot where you look.
+		var centre := get_viewport().get_visible_rect().size / 2.0
+		origin = project_ray_origin(centre)
+		dir = project_ray_normal(centre)
+	else:
+		var mouse := get_viewport().get_mouse_position()
+		origin = project_ray_origin(mouse)
+		dir = project_ray_normal(mouse)
+
+	var speed := lerpf(shoot_speed_min, shoot_speed_max, clampf(charge, 0.0, 1.0))
+
+	if _shot_kind == ShotKind.BOMB:
+		var bomb := WorldOps.spawn_authored_scene(_world, BOMB_SCENE,
+				Transform3D(Basis(), origin + dir * (shoot_radius + 0.6)), {
+					"debug_visualize": false,  # projectiles keep their real look
+					"collision_mask": RAY_MASK,  # fly through invisible guards
+					"blast_impulse": bomb_blast_impulse,
+					"impact_detonation": bomb_impact_detonation,
+				})
+		for body in WorldOps.bodies_in(bomb):
+			WorldOps.set_linear_velocity(body, dir * speed)
+		return  # the bomb owns its own fuse -> explode -> free lifecycle
+
+	if _shot_kind == ShotKind.RAGDOLL:
+		# The figure's bones span roughly y 0.2..1.7 around its feet, so drop
+		# the root by the torso height to launch it centred on the aim ray,
+		# far enough out that no bone starts inside the camera. Face the
+		# flight direction for a proper superhero exit.
+		var fig := WorldOps.spawn_authored_scene(_world, RAGDOLL_SCENE,
+				Transform3D(Basis(Vector3.UP, atan2(dir.x, dir.z)),
+						origin + dir * 2.2 - Vector3(0, 0.95, 0)))
+		var throw_speed := minf(speed, 30.0)  # joints, not bullets: keep it sane
+		for bone in WorldOps.bodies_in(fig):
+			WorldOps.set_linear_velocity(bone, dir * throw_speed)
+		if shoot_lifetime > 0.0:
+			# One timer on the root frees the whole figure, joints and all.
+			Despawn.attach(fig, shoot_lifetime * 2.0)
+		return
+
+	if _ball_mat == null:
+		_ball_mat = StandardMaterial3D.new()
+		_ball_mat.albedo_color = Color(0.95, 0.85, 0.25)
+		_ball_mat.metallic = 0.2
+		_ball_mat.roughness = 0.35
+
+	# Density 4 and restitution 0.35, CCD so a fast ball can't tunnel through
+	# walls, RAY_MASK so it flies through invisible guards.
+	var ball := WorldOps.spawn_sphere(_world,
+			origin + dir * (shoot_radius + 0.5),
+			shoot_radius, 4.0, _ball_mat, true, 0.35, RAY_MASK)
+	WorldOps.set_linear_velocity(ball, dir * speed)
+
+	if shoot_lifetime > 0.0:
+		Despawn.attach(ball, shoot_lifetime)

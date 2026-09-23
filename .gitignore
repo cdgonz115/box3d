@@ -10,7 +10,62 @@ settings.ini
 CMakeUserPresets.json
 .cache/
 .idea/
+.claude/
+CLAUDE.md
 .tmp/
 .fetchcontent-cache/
 *.b3rec
+Superluminal/
+build-dp/
+
+# --- Godot GDExtension build (godot/) ---
+# SCons / compiler intermediates (produced next to sources)
+*.os
+*.obj
+*.o
+*.lib
+*.a
+*.exp
+*.pdb
+*.ilk
+*.gen.cpp
+*.gen.h
+.sconsign.dblite
+compile_commands.json
+godot/build_log.txt
+godot/msvc_capture.log
+
+# Compiled extension libraries (build them with scons)
+*.dll
+*.so
+*.dylib
+~*.dll
+# Godot hot-reload temp copies of reloadable extensions
+~*.dll*
+*.TMP
+*.tmp
+# renamed-aside copies of locked DLLs (Windows rebuild-while-editor-open trick)
+*.dll.old
+# WebAssembly build output and the exported browser build.
+*.wasm
+/web/
+/webfast/
+
+# Exported Android packages (rebuild with: godot --headless --path godot/demo \
+# --export-debug "Android" bin/box3d_demo.apk). ~60 MB each -- not worth tracking.
+*.apk
+*.aab
+*.idsig
+
+# Godot editor cache
+godot/demo/.godot/
+
+# Throwaway physics-engine override written by tools/compare.sh (see
+# compare/README.md). Removed automatically after each run; ignored so a stray
+# one can never be committed and alter the demo's physics backend.
+godot/demo/override.cfg
+
+# upstream sync 2026-09-18
 *.zip
+dist/
+godot/build_logs/

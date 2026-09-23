@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+#
+# Build the Box3D GDExtension for Godot.
+#
+# This compiles godot-cpp, the Box3D C sources (../src), and the C++ wrapper
+# (src/) into a single shared library placed in demo/addons/box3d/bin. Run `scons` with no
+# arguments for a debug editor build, or e.g. `scons target=template_release`.
+
+import os
+
+# Build godot-cpp and inherit its fully configured environment. CCFLAGS
+# (shared by C and C++) carry the platform/arch/runtime settings, so the Box3D
+# C objects are compiled with the same MSVC runtime as godot-cpp and link
+# cleanly.
+env = SConscript("godot-cpp/SConstruct")
+
+# For reference:
+# - CCFLAGS   compile flags shared between C and C++
+# - CFLAGS    C-specific compile flags
+# - CXXFLAGS  C++-specific compile flags
+# - CPPPATH   header search paths
+# - CPPDEFINES  preprocessor defines
+
+# Wrapper headers, Box3D public headers, and Box3D internal headers.
+env.Append(CPPPATH=["src/", "../include/", "../src/"])
+
+# Box3D is C17. godot-cpp only sets a C++ standard, so set the C one here.
+if env.get("is_msvc", False):
+    env.Append(CFLAGS=["/std:c17"])
+else:
+    env.Append(CFLAGS=["-std=gnu17"])
+    # Match Box3D's deterministic-math build flag on GCC/Clang/MinGW.
+    env.Append(CFLAGS=["-ffp-contract=off"])
+
+# Box3D maps B3_CPU_WASM onto its SSE2 path (src/core.h), so simd.h reaches for
+# <emmintrin.h>, which Emscripten only provides with these flags. Upstream's own
+# CMakeLists does the same thing (add_compile_options(-msimd128 -msse2)); this is
+# the SCons equivalent, kept here rather than in the vendored tree.
+if env["platform"] == "web":
+    env.Append(CFLAGS=["-msimd128", "-msse2"])
+    # A nothreads wasm build has no pthreads, and neither std::thread nor
+    # box3d's scheduler can fail softly there: exceptions are off, so a refused
+    # thread aborts the process. BOX3D_NO_THREADS makes the wrapper clamp the
+    # worker count and refuse async stepping instead. Only defined here, so no
+    # other platform sees a different Box3DWorld.
+    if not env["threads"]:
+        env.Append(CPPDEFINES=["BOX3D_NO_THREADS"])
+
+# C++ wrapper + Box3D core C sources.
+sources = Glob("src/*.cpp") + Glob("../src/*.c")
+
+# In-editor class reference. Godot reads the docs for extension classes out of
+# the extension binary itself, so doc_classes/*.xml is compiled in -- for editor
+# and debug targets only, since a release template has no help browser.
+#
+# The XML is generated from the registered classes and then filled in by hand;
+# after adding or renaming a binding, regenerate (the tool MERGES, so existing
+# prose survives):
+#   cd demo && godot --headless --doctool ../ --gdextension-docs
+if env["target"] in ["editor", "template_debug"]:
+    sources.append(env.GodotCPPDocData("src/gen/doc_data.gen.cpp", source=Glob("doc_classes/*.xml")))
+
+libname = "libbox3d_godot"
+bindir = "demo/addons/box3d/bin"
+
+if env["platform"] == "macos":
+    library = env.SharedLibrary(
+        "{}/{}.{}.{}.framework/{}.{}.{}".format(
+            bindir, libname, env["platform"], env["target"], libname, env["platform"], env["target"]
+        ),
+        source=sources,
+    )
+elif env["platform"] == "ios":
+    if env["ios_simulator"]:
+        library = env.StaticLibrary(
+            "{}/{}.{}.{}.simulator.a".format(bindir, libname, env["platform"], env["target"]),
+            source=sources,
+        )
+    else:
+        library = env.StaticLibrary(
+            "{}/{}.{}.{}.a".format(bindir, libname, env["platform"], env["target"]),
+            source=sources,
+        )
+else:
+    library = env.SharedLibrary(
+        "{}/{}{}{}".format(bindir, libname, env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+
+env.NoCache(library)
+Default(library)
